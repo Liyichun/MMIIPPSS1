@@ -30,8 +30,6 @@ public class MIPSsim {
                 }
             }
             simulator.printInstr(_outputFilePath);
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -53,8 +51,6 @@ class Simulator {
             }
             writer.flush();
             writer.close();
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -66,7 +62,6 @@ class Disassembler {
     private static final String category2Pattern = "110(?<rs>\\d{5})(?<rt>\\d{5})(?<opcode>\\d{3})(?<rd>\\d{5})\\d{11}";
     private static final String category3Pattern = "111(?<rs>\\d{5})(?<rt>\\d{5})(?<opcode>\\d{3})(?<imValue>\\d{16})";
     private static Map<String, Category1InstrHandler> codeCategory1InstrMap = new HashMap<>();
-    private static boolean isBreak;
 
     public Disassembler() {
         init();
@@ -85,39 +80,11 @@ class Disassembler {
         codeCategory1InstrMap.put("111", new LW("LW", "000111(?<base>\\d{5})(?<rt>\\d{5})(?<offset>\\d{16})"));
     }
 
-    private static void processCategory1(Instruction instruction) {
-        Pattern pattern = Pattern.compile(category1Pattern);
-        Matcher matcher = pattern.matcher(instruction.getContent());
-        if (matcher.matches()) {
-            String opcode = matcher.group("opcode");
-            Category1InstrHandler handler = codeCategory1InstrMap.get(opcode);
-            handler.handle(instruction);
-        }
-    }
-
-    private static void processCategory2(Instruction instruction) {
-        Pattern pattern = Pattern.compile(category2Pattern);
-        Matcher matcher = pattern.matcher(instruction.getContent());
-        if (matcher.matches()) {
-            Category2InstrHandler handler = new Category2InstrHandler(matcher);
-            handler.handle(instruction);
-        }
-    }
-
-    private static void processCategory3(Instruction instruction) {
-        Pattern pattern = Pattern.compile(category3Pattern);
-        Matcher matcher = pattern.matcher(instruction.getContent());
-        if (matcher.matches()) {
-            Category3InstrHandler handler = new Category3InstrHandler(matcher);
-            handler.handle(instruction);
-        }
-    }
-
     public void disassemble(Instruction instruction) {
         String head = instruction.getContent().substring(0, 3);
         switch (head) {
             case "000":
-                processCategory1(instruction);
+//                processCategory1(instruction);
                 break;
             case "110":
                 processCategory2(instruction);
@@ -127,6 +94,34 @@ class Disassembler {
                 break;
             default:
                 break;
+        }
+    }
+
+    private static void processCategory1(Instruction instruction) {
+        Pattern pattern = Pattern.compile(category1Pattern);
+        Matcher matcher = pattern.matcher(instruction.getContent());
+        if (matcher.matches()) {
+            String opcode = matcher.group("opcode");
+            InstrHandler handler = codeCategory1InstrMap.get(opcode);
+            handler.handle(instruction);
+        }
+    }
+
+    private static void processCategory2(Instruction instruction) {
+        Pattern pattern = Pattern.compile(category2Pattern);
+        Matcher matcher = pattern.matcher(instruction.getContent());
+        if (matcher.matches()) {
+            InstrHandler handler = new Category2InstrHandler(matcher);
+            handler.handle(instruction);
+        }
+    }
+
+    private static void processCategory3(Instruction instruction) {
+        Pattern pattern = Pattern.compile(category3Pattern);
+        Matcher matcher = pattern.matcher(instruction.getContent());
+        if (matcher.matches()) {
+            InstrHandler handler = new Category3InstrHandler(matcher);
+            handler.handle(instruction);
         }
     }
 }
@@ -173,9 +168,6 @@ class Instruction {
 
 abstract class InstrHandler {
     Instruction instruction;
-    Pattern pattern;
-    Matcher matcher;
-    String name;
 
     public InstrHandler() {
     }
@@ -184,38 +176,37 @@ abstract class InstrHandler {
         return Integer.parseInt(s);
     }
 
-    public void handle(Instruction instruction) {
-        this.instruction = instruction;
-        instruction.setName(this.name);
-        handleCode(matcher);
-    }
+    public abstract void handle(Instruction instruction);
+
+    public abstract void handleCode(Matcher matcher);
 
     public Integer binToDec(String binary) {
         return Integer.valueOf(binary, 2);
     }
-
-    public abstract void handleCode(Matcher matcher);
 }
 
 abstract class Category1InstrHandler extends InstrHandler {
+    String name;
     String regex;
 
     public Category1InstrHandler(String name, String regex) {
         this.name = name;
         this.regex = regex;
-        pattern = Pattern.compile(regex);
     }
 
     @Override
     public void handle(Instruction instruction) {
         this.instruction = instruction;
-        instruction.setName(this.name);
-        handleCode(pattern.matcher(instruction.getContent()));
+        this.instruction.setName(this.name);
+
+        Pattern pattern = Pattern.compile(regex);
+        handleCode(pattern.matcher(this.instruction.getContent()));
     }
 }
 
 class Category2InstrHandler extends InstrHandler {
     private Map<String, String> map = new HashMap<>();
+    Matcher matcher;
 
     public Category2InstrHandler(Matcher matcher) {
         super();
@@ -230,20 +221,28 @@ class Category2InstrHandler extends InstrHandler {
     }
 
     @Override
+    public void handle(Instruction instruction) {
+        this.instruction = instruction;
+        handleCode(matcher);
+    }
+
+    @Override
     public void handleCode(Matcher matcher) {
         String opcode = this.matcher.group("opcode");
         String rs = this.matcher.group("rs");
         String rt = this.matcher.group("rt");
         String rd = this.matcher.group("rd");
-        this.name = map.get(opcode);
+        String name = map.get(opcode);
         String printValue = name + " R" + binToDec(rd) + ", R" + binToDec(rs) + ", R" + binToDec(rt);
-        instruction.setPrintValue(printValue);
 
+        instruction.setPrintValue(printValue);
+        instruction.setName(name);
     }
 }
 
 class Category3InstrHandler extends InstrHandler {
     private Map<String, String> map = new HashMap<>();
+    Matcher matcher;
 
     public Category3InstrHandler(Matcher matcher) {
         super();
@@ -255,13 +254,21 @@ class Category3InstrHandler extends InstrHandler {
     }
 
     @Override
+    public void handle(Instruction instruction) {
+        this.instruction = instruction;
+        handleCode(matcher);
+    }
+
+    @Override
     public void handleCode(Matcher matcher) {
         String opcode = this.matcher.group("opcode");
         String rs = this.matcher.group("rs");
         String rt = this.matcher.group("rt");
         String imValue = this.matcher.group("imValue");
-        this.name = map.get(opcode);
+        String name = map.get(opcode);
         String printValue = name + " R" + binToDec(rt) + ", R" + binToDec(rs) + ", #" + binToDec(imValue);
+
+        instruction.setName(name);
         instruction.setPrintValue(printValue);
     }
 }
