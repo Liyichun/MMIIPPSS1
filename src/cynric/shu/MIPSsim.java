@@ -1,6 +1,8 @@
 package cynric.shu;
 
 import java.io.*;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -9,13 +11,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MIPSsim {
+    static final String _disassembleFilePath = "./disassembler.txt";
+    static final String _simulationFilePath = "./simulation.txt";
 
     public static void main(String[] args) {
         Disassembler disassembler = new Disassembler();
         Simulator simulator = new Simulator();
         final String _inputFilePath = args[0];
-        final String _outputFilePath = "./disassembler.txt";
-        final String _resultFilePath = "./simulation.txt";
+
         File file = new File(_inputFilePath);
         try {
             BufferedReader reader = new BufferedReader(new FileReader(file));
@@ -25,11 +28,17 @@ public class MIPSsim {
                 disassembler.disassemble(instruction);
                 simulator.addInstr(instruction);
                 if ("BREAK".equals(instruction.getName())) {
-                    System.out.println("break");
                     break;
                 }
             }
-            simulator.printInstr(_outputFilePath);
+            while ((line = reader.readLine()) != null) {
+                simulator.addData(disassembler.parseData(line));
+            }
+            reader.close();
+
+            simulator.printInstr(_disassembleFilePath);
+            simulator.exec();
+
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -38,16 +47,40 @@ public class MIPSsim {
 
 class Simulator {
     List<Instruction> instrList = new ArrayList<>();
+    List<Data> dataList = new ArrayList<>();
+    int startAddress = 128;
+    int R[] = new int[32];
+
+    public Simulator() {
+        int i = 0;
+        for (; i < R.length; i++) {
+            R[i] = 0;
+        }
+    }
 
     public void addInstr(Instruction instr) {
         this.instrList.add(instr);
     }
 
+    public void addData(Data data) {
+        this.dataList.add(data);
+    }
+
     public void printInstr(String outputFilePath) {
         try {
             FileWriter writer = new FileWriter(new File(outputFilePath));
+            int position = startAddress;
             for (Instruction i : instrList) {
+                writer.write(i.getContent() + "\t");
+                writer.write(String.valueOf(position) + "\t");
                 writer.write(i.getPrintValue() + "\n");
+                position += 4;
+            }
+            for (Data data : dataList) {
+                writer.write(data.getContent() + "\t");
+                writer.write(position + "\t");
+                writer.write(data.getValue() + "\n");
+                position += 4;
             }
             writer.flush();
             writer.close();
@@ -55,36 +88,134 @@ class Simulator {
             e.printStackTrace();
         }
     }
+
+    public void exec() {
+        int index = 0;
+        for (; index < instrList.size(); index++) {
+            Instruction instruction = instrList.get(index);
+            String name = instruction.getName();
+            try {
+                Method method = this.getClass().getDeclaredMethod(name, Instruction.class);
+                method.invoke(this, instruction);
+            } catch (NoSuchMethodException e) {
+                e.printStackTrace();
+            } catch (InvocationTargetException e) {
+                e.printStackTrace();
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+
+
+        printCycleResult();
+
+    }
+
+    public void ADD(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] + R[args[2]];
+    }
+
+    public void ADDI(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] + args[2];
+    }
+
+    public void SUB(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] - R[args[2]];
+    }
+
+    public void MUL(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] * R[args[2]];
+    }
+
+    public void AND(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] & R[args[2]];
+    }
+
+    public void ANDI(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] & args[2];
+    }
+
+    public void OR(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] | R[args[2]];
+    }
+
+    public void ORI(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] | args[2];
+    }
+
+    public void XOR(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] ^ R[args[2]];
+    }
+
+    public void XORI(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = R[args[1]] ^ args[2];
+    }
+
+    public void NOR(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[0]] = ~(R[args[1]] | R[args[2]]);
+    }
+
+
+    public Instruction getInstrByAddress(int address) {
+        int i = (address - startAddress) / 4;
+        return instrList.get(i);
+    }
+
+    public void printCycleResult() {
+        String hyphen = "--------------------";
+        try {
+            FileWriter writer = new FileWriter(new File(MIPSsim._simulationFilePath));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+class Data {
+    int value;
+    String content;
+
+    public String getContent() {
+        return content;
+    }
+
+    public void setContent(String content) {
+        this.content = content;
+    }
+
+    public int getValue() {
+        return value;
+    }
+
+    public void setValue(int value) {
+        this.value = value;
+    }
 }
 
 class Disassembler {
     private static final String category1Pattern = "000(?<opcode>\\d{3})\\d{26}";
     private static final String category2Pattern = "110(?<rs>\\d{5})(?<rt>\\d{5})(?<opcode>\\d{3})(?<rd>\\d{5})\\d{11}";
     private static final String category3Pattern = "111(?<rs>\\d{5})(?<rt>\\d{5})(?<opcode>\\d{3})(?<imValue>\\d{16})";
-    private static Map<String, Category1InstrHandler> codeCategory1InstrMap = new HashMap<>();
 
     public Disassembler() {
-        init();
-    }
-
-    private static void init() {
-        initCategory1CodeInstrMap();
-    }
-
-    private static void initCategory1CodeInstrMap() {
-        codeCategory1InstrMap.put("000", new J("J", "000000(?<instrIndex>\\d{26})"));
-        codeCategory1InstrMap.put("010", new BEQ("BEQ", "000010(?<rs>\\d{5})(?<rt>\\d{5})(?<offset>\\d{16})"));
-        codeCategory1InstrMap.put("100", new BGTZ("BGTZ", "000100(?<rs>\\d{5})\\d{5}(?<offset>\\d{16})"));
-        codeCategory1InstrMap.put("101", new BREAK("BREAK", "\\d{32}"));
-        codeCategory1InstrMap.put("110", new SW("SW", "000110(?<base>\\d{5})(?<rt>\\d{5})(?<offset>\\d{16})"));
-        codeCategory1InstrMap.put("111", new LW("LW", "000111(?<base>\\d{5})(?<rt>\\d{5})(?<offset>\\d{16})"));
     }
 
     public void disassemble(Instruction instruction) {
         String head = instruction.getContent().substring(0, 3);
         switch (head) {
             case "000":
-//                processCategory1(instruction);
+                processCategory1(instruction);
                 break;
             case "110":
                 processCategory2(instruction);
@@ -97,12 +228,29 @@ class Disassembler {
         }
     }
 
+    public Data parseData(String line) {
+        Data data = new Data();
+        data.setContent(line);
+        int symbolFlag = 0;
+        symbolFlag = line.charAt(0) - '0';
+        line = line.substring(1);
+
+        char[] array = line.toCharArray();
+        int num = 0;
+        for (int i = 0; i != array.length; i++) {
+            int bit = (array[i] - '0') << (array.length - 1 - i);
+            num = (num | bit);
+        }
+        data.setValue((symbolFlag << 31) | num);
+        return data;
+    }
+
     private static void processCategory1(Instruction instruction) {
         Pattern pattern = Pattern.compile(category1Pattern);
         Matcher matcher = pattern.matcher(instruction.getContent());
         if (matcher.matches()) {
             String opcode = matcher.group("opcode");
-            InstrHandler handler = codeCategory1InstrMap.get(opcode);
+            InstrHandler handler = new Category1InstrHandler(opcode);
             handler.handle(instruction);
         }
     }
@@ -125,7 +273,6 @@ class Disassembler {
         }
     }
 }
-
 
 class Instruction {
     private int[] args;
@@ -167,46 +314,110 @@ class Instruction {
 }
 
 abstract class InstrHandler {
-    Instruction instruction;
-
-    public InstrHandler() {
-    }
-
     public Integer parseInt(String s) {
         return Integer.parseInt(s);
     }
 
     public abstract void handle(Instruction instruction);
 
-    public abstract void handleCode(Matcher matcher);
-
     public Integer binToDec(String binary) {
         return Integer.valueOf(binary, 2);
     }
 }
 
-abstract class Category1InstrHandler extends InstrHandler {
-    String name;
-    String regex;
+class Category1InstrHandler extends InstrHandler {
+    private Map<String, String[]> map = new HashMap<>();
+    private String opcode;
+    private Matcher matcher;
+    private Instruction instruction;
 
-    public Category1InstrHandler(String name, String regex) {
-        this.name = name;
-        this.regex = regex;
+    public Category1InstrHandler(String opcode) {
+        map.put("000", new String[]{"J", "000000(?<instrIndex>\\d{26})"});
+        map.put("010", new String[]{"BEQ", "000010(?<rs>\\d{5})(?<rt>\\d{5})(?<offset>\\d{16})"});
+        map.put("100", new String[]{"BGTZ", "000100(?<rs>\\d{5})\\d{5}(?<offset>\\d{16})"});
+        map.put("101", new String[]{"BREAK", "\\d{32}"});
+        map.put("110", new String[]{"SW", "000110(?<base>\\d{5})(?<rt>\\d{5})(?<offset>\\d{16})"});
+        map.put("111", new String[]{"LW", "000111(?<base>\\d{5})(?<rt>\\d{5})(?<offset>\\d{16})"});
+
+        this.opcode = opcode;
     }
 
     @Override
     public void handle(Instruction instruction) {
-        this.instruction = instruction;
-        this.instruction.setName(this.name);
 
-        Pattern pattern = Pattern.compile(regex);
-        handleCode(pattern.matcher(this.instruction.getContent()));
+        this.instruction = instruction;
+        String name = map.get(opcode)[0];
+        instruction.setName(name);
+
+        Pattern pattern = Pattern.compile(map.get(opcode)[1]);
+        matcher = pattern.matcher(instruction.getContent());
+
+        if (matcher.matches()) {
+            try {
+                Method method = this.getClass().getDeclaredMethod(name);
+                method.invoke(this);
+            } catch (NoSuchMethodException e) {
+                e.printStackTrace();
+            } catch (InvocationTargetException e) {
+                e.printStackTrace();
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void J() {
+        String instrIndex = matcher.group("instrIndex");
+        Integer target = (binToDec(instrIndex)) << 2;
+        instruction.setPrintValue(instruction.getName() + " #" + target);
+        instruction.setArgs(new int[]{target});
+    }
+
+    public void BEQ() {
+        String rs = matcher.group("rs");
+        String rt = matcher.group("rt");
+        String offset = matcher.group("offset");
+        Integer target = (binToDec(offset)) << 2;
+        String printValue = instruction.getName() + " R" + binToDec(rs) + ", R" + binToDec(rt) + ", #" + target;
+        instruction.setPrintValue(printValue);
+        instruction.setArgs(new int[]{binToDec(rs), binToDec(rt), target});
+    }
+
+    public void BGTZ() {
+        String rs = matcher.group("rs");
+        String offset = matcher.group("offset");
+        Integer target = (binToDec(offset)) << 2;
+        String printValue = instruction.getName() + " R" + binToDec(rs) + ", #" + target;
+        instruction.setPrintValue(printValue);
+        instruction.setArgs(new int[]{binToDec(rs), target});
+    }
+
+    public void BREAK() {
+        instruction.setPrintValue("BREAK");
+    }
+
+    public void SW() {
+        String base = matcher.group("base");
+        String rt = matcher.group("rt");
+        String offset = matcher.group("offset");
+        String printValue = instruction.getName() + " R" + binToDec(rt) + ", " + binToDec(offset) + "(R" + binToDec(base) + ")";
+        instruction.setPrintValue(printValue);
+        instruction.setArgs(new int[]{binToDec(base), binToDec(rt), binToDec(offset)});
+    }
+
+    public void LW() {
+        String base = matcher.group("base");
+        String rt = matcher.group("rt");
+        String offset = matcher.group("offset");
+        String printValue = instruction.getName() + " R" + binToDec(rt) + ", " + binToDec(offset) + "(R" + binToDec(base) + ")";
+        instruction.setPrintValue(printValue);
+        instruction.setArgs(new int[]{binToDec(base), binToDec(rt), binToDec(offset)});
     }
 }
 
 class Category2InstrHandler extends InstrHandler {
     private Map<String, String> map = new HashMap<>();
-    Matcher matcher;
+    private Matcher matcher;
 
     public Category2InstrHandler(Matcher matcher) {
         super();
@@ -222,12 +433,6 @@ class Category2InstrHandler extends InstrHandler {
 
     @Override
     public void handle(Instruction instruction) {
-        this.instruction = instruction;
-        handleCode(matcher);
-    }
-
-    @Override
-    public void handleCode(Matcher matcher) {
         String opcode = this.matcher.group("opcode");
         String rs = this.matcher.group("rs");
         String rt = this.matcher.group("rt");
@@ -237,12 +442,13 @@ class Category2InstrHandler extends InstrHandler {
 
         instruction.setPrintValue(printValue);
         instruction.setName(name);
+        instruction.setArgs(new int[]{binToDec(rd), binToDec(rs), binToDec(rt)});
     }
 }
 
 class Category3InstrHandler extends InstrHandler {
     private Map<String, String> map = new HashMap<>();
-    Matcher matcher;
+    private Matcher matcher;
 
     public Category3InstrHandler(Matcher matcher) {
         super();
@@ -255,12 +461,6 @@ class Category3InstrHandler extends InstrHandler {
 
     @Override
     public void handle(Instruction instruction) {
-        this.instruction = instruction;
-        handleCode(matcher);
-    }
-
-    @Override
-    public void handleCode(Matcher matcher) {
         String opcode = this.matcher.group("opcode");
         String rs = this.matcher.group("rs");
         String rt = this.matcher.group("rt");
@@ -268,99 +468,9 @@ class Category3InstrHandler extends InstrHandler {
         String name = map.get(opcode);
         String printValue = name + " R" + binToDec(rt) + ", R" + binToDec(rs) + ", #" + binToDec(imValue);
 
+        instruction.setPrintValue(printValue);
         instruction.setName(name);
-        instruction.setPrintValue(printValue);
-    }
-}
-
-
-class J extends Category1InstrHandler {
-    public J(String name, String regex) {
-        super(name, regex);
-    }
-
-    @Override
-    public void handleCode(Matcher matcher) {
-        String instrIndex = matcher.group("instrIndex");
-        Integer target = (binToDec(instrIndex)) << 2;
-        instruction.setPrintValue(this.name + " #" + target);
-    }
-}
-
-class BEQ extends Category1InstrHandler {
-    public BEQ(String name, String regex) {
-        super(name, regex);
-    }
-
-    @Override
-    public void handleCode(Matcher matcher) {
-        String rs = matcher.group("rs");
-        String rt = matcher.group("rt");
-        String offset = matcher.group("offset");
-        Integer target = (binToDec(offset)) << 2;
-        String printValue = this.name + " R" + binToDec(rs) + ", R" + binToDec(rt) + ", #" + target;
-        instruction.setPrintValue(printValue);
-        instruction.setArgs(new int[]{parseInt(rs), parseInt(rt), parseInt(offset)});
-    }
-}
-
-class BGTZ extends Category1InstrHandler {
-
-    public BGTZ(String name, String regex) {
-        super(name, regex);
-    }
-
-    @Override
-    public void handleCode(Matcher matcher) {
-        String rs = matcher.group("rs");
-        String offset = matcher.group("offset");
-        Integer target = (binToDec(offset)) << 2;
-        String printValue = this.name + " R" + binToDec(rs) + ", #" + target;
-        instruction.setPrintValue(printValue);
-        instruction.setArgs(new int[]{parseInt(rs), parseInt(offset)});
-    }
-}
-
-class BREAK extends Category1InstrHandler {
-    public BREAK(String name, String regex) {
-        super(name, regex);
-    }
-
-    @Override
-    public void handleCode(Matcher matcher) {
-
-        instruction.setPrintValue("BREAK");
-
-    }
-}
-
-class SW extends Category1InstrHandler {
-    public SW(String name, String regex) {
-        super(name, regex);
-    }
-
-    @Override
-    public void handleCode(Matcher matcher) {
-        String base = matcher.group("base");
-        String rt = matcher.group("rt");
-        String offset = matcher.group("offset");
-        String printValue = this.name + " R" + binToDec(rt) + ", " + binToDec(offset) + "(R" + binToDec(base) + ")";
-        instruction.setPrintValue(printValue);
-    }
-}
-
-class LW extends Category1InstrHandler {
-    public LW(String name, String regex) {
-        super(name, regex);
-    }
-
-    @Override
-    public void handleCode(Matcher matcher) {
-        String base = matcher.group("base");
-        String rt = matcher.group("rt");
-        String offset = matcher.group("offset");
-        String printValue = this.name + " R" + binToDec(rt) + ", " + binToDec(offset) + "(R" + binToDec(base) + ")";
-        instruction.setPrintValue(printValue);
+        instruction.setArgs(new int[]{binToDec(rt), binToDec(rs), binToDec(imValue)});
     }
 }
 
