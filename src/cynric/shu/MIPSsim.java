@@ -49,7 +49,12 @@ class Simulator {
     List<Instruction> instrList = new ArrayList<>();
     List<Data> dataList = new ArrayList<>();
     int startAddress = 128;
+    int position = startAddress;
+    int cycle = 1;
+    int endAddress = 0;
+    int dataAddress = endAddress + 4;
     int R[] = new int[32];
+    boolean isBreak = false;
 
     public Simulator() {
         int i = 0;
@@ -90,9 +95,11 @@ class Simulator {
     }
 
     public void exec() {
-        int index = 0;
-        for (; index < instrList.size(); index++) {
-            Instruction instruction = instrList.get(index);
+        endAddress = startAddress + instrList.size() * 4;
+
+
+        while (!isBreak && position <= endAddress) {
+            Instruction instruction = getInstrByAddress(position);
             String name = instruction.getName();
             try {
                 Method method = this.getClass().getDeclaredMethod(name, Instruction.class);
@@ -104,12 +111,58 @@ class Simulator {
             } catch (IllegalAccessException e) {
                 e.printStackTrace();
             }
+            printCycleResult();
+            position += 4;
+            cycle++;
         }
+    }
 
+    public void saveToMemory(int value, int address) {
+        dataList.add((address - dataAddress) / 4, new Data(value));
+    }
 
-        printCycleResult();
+    public int getMemoryData(int address) {
+
+        return 0;
+    }
+
+    // start category 1 -------------------
+    public void J(Instruction instruction) {
+        int targetAddr = instruction.getArgs()[0];
+        this.position = targetAddr;
 
     }
+
+    public void BEQ(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        if (args[0] == args[1]) {
+            position = args[2];
+        }
+    }
+
+    public void BGTZ(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        if (args[0] > 0) {
+            position = args[1];
+        }
+    }
+
+    public void BREAK(Instruction instruction) {
+        this.isBreak = true;
+    }
+
+    public void SW(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        saveToMemory(R[args[1]], R[args[0]] + args[2]);
+    }
+
+    public void LW(Instruction instruction) {
+        int[] args = instruction.getArgs();
+        R[args[1]] = getMemoryData(R[args[0]] + args[2]);
+    }
+
+    // end category 1 -------------------
+
 
     public void ADD(Instruction instruction) {
         int[] args = instruction.getArgs();
@@ -176,6 +229,7 @@ class Simulator {
         String hyphen = "--------------------";
         try {
             FileWriter writer = new FileWriter(new File(MIPSsim._simulationFilePath));
+
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -185,6 +239,13 @@ class Simulator {
 class Data {
     int value;
     String content;
+
+    public Data() {
+    }
+
+    public Data(int value) {
+        this.value = value;
+    }
 
     public String getContent() {
         return content;
