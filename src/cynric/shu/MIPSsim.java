@@ -51,15 +51,20 @@ class Simulator {
     int startAddress = 128;
     int position = startAddress;
     int cycle = 1;
-    int endAddress = 0;
-    int dataAddress = endAddress + 4;
+    int dataAddress;
     int R[] = new int[32];
     boolean isBreak = false;
+    FileWriter writer;
 
     public Simulator() {
         int i = 0;
         for (; i < R.length; i++) {
             R[i] = 0;
+        }
+        try {
+            writer = new FileWriter(new File(MIPSsim._simulationFilePath));
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
@@ -95,12 +100,14 @@ class Simulator {
     }
 
     public void exec() {
-        endAddress = startAddress + instrList.size() * 4;
+        dataAddress = startAddress + instrList.size() * 4;
+        int oldPosition;
+        String name;
 
-
-        while (!isBreak && position <= endAddress) {
+        while (!isBreak) {
+            oldPosition = position;
             Instruction instruction = getInstrByAddress(position);
-            String name = instruction.getName();
+            name = instruction.getName();
             try {
                 Method method = this.getClass().getDeclaredMethod(name, Instruction.class);
                 method.invoke(this, instruction);
@@ -111,126 +118,176 @@ class Simulator {
             } catch (IllegalAccessException e) {
                 e.printStackTrace();
             }
-            printCycleResult();
+            printCycleResult(oldPosition, writer);
             position += 4;
             cycle++;
         }
+        try {
+            writer.flush();
+            writer.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
-    public void saveToMemory(int value, int address) {
-        dataList.add((address - dataAddress) / 4, new Data(value));
+    private void saveToMemory(int value, int address) {
+        int index = (address - dataAddress) / 4;
+        if (index >= 16) {
+            System.out.println("error");
+        }
+        dataList.set(index, new Data(value));
     }
 
-    public int getMemoryData(int address) {
-
-        return 0;
+    private int getMemoryData(int address) {
+        Data data = dataList.get((address - dataAddress) / 4);
+        return data.getValue();
     }
 
     // start category 1 -------------------
-    public void J(Instruction instruction) {
-        int targetAddr = instruction.getArgs()[0];
+    private void J(Instruction instruction) {
+        int targetAddr = instruction.getArgs()[0] - 4;
         this.position = targetAddr;
-
     }
 
-    public void BEQ(Instruction instruction) {
+    private void BEQ(Instruction instruction) {
         int[] args = instruction.getArgs();
-        if (args[0] == args[1]) {
-            position = args[2];
+        if (R[args[0]] == R[args[1]]) {
+            position += args[2];
         }
     }
 
-    public void BGTZ(Instruction instruction) {
+    private void BGTZ(Instruction instruction) {
         int[] args = instruction.getArgs();
-        if (args[0] > 0) {
-            position = args[1];
+        if (R[args[0]] > 0) {
+            position += args[1];
         }
     }
 
-    public void BREAK(Instruction instruction) {
+    private void BREAK(Instruction instruction) {
         this.isBreak = true;
     }
 
-    public void SW(Instruction instruction) {
+    private void SW(Instruction instruction) {
         int[] args = instruction.getArgs();
         saveToMemory(R[args[1]], R[args[0]] + args[2]);
     }
 
-    public void LW(Instruction instruction) {
+    private void LW(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[1]] = getMemoryData(R[args[0]] + args[2]);
     }
 
     // end category 1 -------------------
 
-
-    public void ADD(Instruction instruction) {
+    private void ADD(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] + R[args[2]];
     }
 
-    public void ADDI(Instruction instruction) {
+    private void ADDI(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] + args[2];
     }
 
-    public void SUB(Instruction instruction) {
+    private void SUB(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] - R[args[2]];
     }
 
-    public void MUL(Instruction instruction) {
+    private void MUL(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] * R[args[2]];
     }
 
-    public void AND(Instruction instruction) {
+    private void AND(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] & R[args[2]];
     }
 
-    public void ANDI(Instruction instruction) {
+    private void ANDI(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] & args[2];
     }
 
-    public void OR(Instruction instruction) {
+    private void OR(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] | R[args[2]];
     }
 
-    public void ORI(Instruction instruction) {
+    private void ORI(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] | args[2];
     }
 
-    public void XOR(Instruction instruction) {
+    private void XOR(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] ^ R[args[2]];
     }
 
-    public void XORI(Instruction instruction) {
+    private void XORI(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = R[args[1]] ^ args[2];
     }
 
-    public void NOR(Instruction instruction) {
+    private void NOR(Instruction instruction) {
         int[] args = instruction.getArgs();
         R[args[0]] = ~(R[args[1]] | R[args[2]]);
     }
 
 
-    public Instruction getInstrByAddress(int address) {
+    private Instruction getInstrByAddress(int address) {
         int i = (address - startAddress) / 4;
         return instrList.get(i);
     }
 
-    public void printCycleResult() {
+    private void printCycleResult(int oldPosition, FileWriter writer) {
         String hyphen = "--------------------";
         try {
-            FileWriter writer = new FileWriter(new File(MIPSsim._simulationFilePath));
-
+            writer.append(hyphen + "\n");
+            writer.append("Cycle:" + cycle + "\t" + oldPosition + "\t" + getInstrByAddress(oldPosition).getPrintValue());
+            writer.append("\n\n");
+            writer.append("Registers");
+            writeRegister(writer);
+            writer.append("Data");
+            writeData(writer);
+            writer.flush();
         } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void writeRegister(FileWriter writer) {
+        int index = 0;
+        try {
+            for (; index < 32; index++) {
+                if ((index % 8) == 0) {
+                    if (index < 10) {
+                        writer.append("\nR0" + index + ":");
+                    } else {
+                        writer.append("\nR" + index + ":");
+                    }
+                }
+                writer.append("\t" + R[index]);
+            }
+            writer.append("\n\n");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void writeData(FileWriter writer) {
+        int index = 0;
+        int address = dataAddress;
+        try {
+            for (; index < dataList.size(); index++) {
+                if ((index % 8) == 0) {
+                    writer.append("\n" + address + ":");
+                }
+                writer.append("\t" + dataList.get(index).getValue());
+                address += 4;
+            }
+            writer.append("\n\n");
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
