@@ -11,7 +11,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MIPSsim {
-    static final String _disassembleFilePath = "./disassembler.txt";
+    static final String _disassembleFilePath = "./disassembly.txt";
     static final String _simulationFilePath = "./simulation.txt";
 
     public static void main(String[] args) {
